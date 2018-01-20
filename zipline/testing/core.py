@@ -11,8 +11,9 @@ import operator
 import os
 from os.path import abspath, dirname, join, realpath
 import shutil
-from sys import _getframe
+import sys
 import tempfile
+from traceback import format_exception
 
 from logbook import TestHandler
 from mock import patch
@@ -898,12 +899,18 @@ class SubTestFailures(AssertionError):
     def __init__(self, *failures):
         self.failures = failures
 
+    @staticmethod
+    def _format_exc(exc_info):
+        # we need to do this weird join-split-join to ensure that the full
+        # message is indented by 4 spaces
+        return '\n    '.join(''.join(format_exception(*exc_info)).splitlines())
+
     def __str__(self):
         return 'failures:\n  %s' % '\n  '.join(
             '\n    '.join((
                 ', '.join('%s=%r' % item for item in scope.items()),
-                '%s: %s' % (type(exc).__name__, exc),
-            )) for scope, exc in self.failures,
+                self._format_exc(exc_info),
+            )) for scope, exc_info in self.failures,
         )
 
 
@@ -976,10 +983,11 @@ def subtest(iterator, *_names):
                 scope = tuple(scope)
                 try:
                     f(*args + scope, **kwargs)
-                except Exception as e:
+                except Exception:
+                    info = sys.exc_info()
                     if not names:
                         names = count()
-                    failures.append((dict(zip(names, scope)), e))
+                    failures.append((dict(zip(names, scope)), info))
             if failures:
                 raise SubTestFailures(*failures)
 
@@ -1529,7 +1537,7 @@ def ensure_doctest(f, name=None):
     f : any
        ``f`` unchanged.
     """
-    _getframe(2).f_globals.setdefault('__test__', {})[
+    sys._getframe(2).f_globals.setdefault('__test__', {})[
         f.__name__ if name is None else name
     ] = f
     return f
